@@ -1,124 +1,65 @@
-# 네이버 기본 정보 크롤링(종목코드, 시가총액, 시가총액순위,상장주식수, 액면가)
-
-import urllib.request
-from datetime import datetime
-import pandas as pd
-from pandas import DataFrame
-from pykrx import stock
-
-from bs4 import BeautifulSoup
-from selenium import webdriver
 import requests
+from bs4 import BeautifulSoup as bs
+import pandas as pd
 
-saveData = []  # 엑셀로 저장될 리스트
+import re  # 정규표현식
 
-# 종목코드 리스트
+import dbInsert
 
-# 삼성전자 : 005930
-# naver : 035420
-# 카카오 : 035720
-# 현대차 : 005380
-# sk바이오사이언스 : 320440
+headers = {
+ 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36'}  # 네이버가 크롤링 접속 차단해놓아서 headers 넣어줌 https://m.blog.naver.com/kiddwannabe/221185808375 참고
+url = 'https://news.naver.com/main/list.naver?mode=LS2D&mid=shm&sid1=101&sid2=259'  # 네이버 경제 뉴스 url
+page = requests.get(url, headers=headers)
 
-company_list = ['005930', '035420', '035720', '005380', '320440']
-query_list=['삼성전자', '네이버', '카카오', '현대차', 'sk바이오사이언스']
+soup = bs(page.text, "html.parser")
 
-# 기업 정보 얻기 위한 주소
-# get_news_url = 'https://finance.naver.com/item/news.naver?code='
-search_news_url = 'https://search.naver.com/search.naver?where=news&sm=tab_jum&query='
+news_url_list = []  # 뉴스 url 리스트 생성
 
-# 공백 제거해주는 함수
-def no_space(target):
-    itemList = target.text.split()
-    # text를 사용한 이유 : td 안에 <em></em> 를 제거하기 위하여 안쪾에 있는 text를 인식하고자 함.
-    # print(itemList)
-    result = ''
-    for item in itemList[0::]:
-        result += item + " "
-    # print(result)
-    return result.strip()
-# end def no_space(target):
+# https://toentoi.tistory.com/43 참고하기
+for href in soup.find("div", class_="list_body newsflash_body").find_all(
+        "li"):  # div의 클래스가 list_body newsflash_body 인 것을 찾아 li 태그 부분만을 찾음
+ news_url_list.append(href.find("a")["href"])  # 찾은 것 중에서 a 태그의 링크를 가져와서 리스트에 넣어줌
 
-# 크롤링하는 함수
-def getData():
-    count = 0  # 종목코드로 크롤링 얼마나 했는지 세는 count 변수
-    company_code = ''
-    news_title = '' # 뉴스 제목
-    news_info = '' # 정보제공
-    news_date = '' # 기사 기재 일자
-
-    for company_code in company_list[0::]:  # 오류 :
-        print('종목코드 : ' + company_code)
-
-# 기업정보 크롤링
-    for query in query_list[0::]:
-        print('검색어 명칭 : ' + query)
-        url = search_news_url + query
-
-        html = requests.get(url)
-        html = html.content.decode('cp949', 'replace')
-        soup = BeautifulSoup(html, 'html.parser')
-
-        # req = requests.get(url, headers={'User-agent': 'Mozilla/5.0'})
-        # soup = BeautifulSoup(req.text, "lxml")  # html에 대하여 접근할 수 있도록
-
-        list_news = soup.find({'ul': 'list_news'}).select_one('li:nth-of-type(1)')
-        print(list_news)
-
-        # news_area = list_news.find('div', attrs={'class':'news_area'})
-        # print(news_area)
+# print(news_url_list) # 뉴스 url 리스트 출력
 
 
+news_info_list = []  # 뉴스 정보 리스트
 
+for url in news_url_list:  # 뉴스 url 리스트에서 url를 하나씩 들고옴
+ page = requests.get(url, headers=headers)
+ soup = bs(page.text, "html.parser")
 
+ tmp = []  # 임시 리스트 생성
 
-        # # 포괄적인 div 찾기
-        # findFirst = soup.find('div', attrs={'class': 'first'})
-        # # print(findFirst)
-        #
-        # # 구체적 table 찾기(이걸 활용해서 시가총액, 시가총액순위  찾기)
-        # findTable = findFirst.find('table')
-        # # print(findTable)
-        #
-        # # 시가총액, company_capitalization
-        # find_company_capital = findTable.select_one('tr:nth-of-type(1)').find('td')
-        # # print(find_company_capital)
-        # company_capitalization = no_space(find_company_capital)
-        #
-        # # 시가총액순위, company_rank
-        # find_second_td = findTable.select_one('tr:nth-of-type(2)').find('td')
-        # # print(find_company_rank)
-        # second_td = no_space(find_second_td)
+ tmp.append(url)  # url 넣기
 
+ # header 가져오기
+ header = soup.find("h2", class_="media_end_head_headline")  # h2의 클래스가 media_end_head_headline 부분 찾기 ( 기사 제목 )
+ header = re.sub('(<([^>]+)>)', '', str(
+  header))  # html 문자 제거 https://code-study.tistory.com/55 참고, str은 문자열로 바꾸는 함수임! 크롤링한 내용을 문자열로 바꿔서 넣어줌
+ header = header.replace('\n', '').replace('\t', '')  # \n 줄바꿈 태그가 들어가있어서 제거해줌
+ tmp.append(header)
 
+ # body 가져오기
+ body = soup.find("div",
+                  class_="newsct_article _article_body")  # div의 클래스가 newsct_article _article_body 부분 찾기 ( 기사 내용 )
+ body = re.sub('(<([^>]+)>)', '',
+               str(body))  # html 문자 제거 https://code-study.tistory.com/55 참고, str은 문자열로 바꾸는 함수임! 크롤링한 내용을 문자열로 바꿔서 넣어줌
+ body = body.replace('\n', '').replace('\t', '')  # \n 줄바꿈 태그가 들어가있어서 제거해줌
+ body = body.strip()  # 좌우 공백 제거
+ tmp.append(body)
 
+ # 이미지 가져오기
+ img = soup.find("img", id="img1")
+ try:
+  img = img.get('data-src')
+ except:
+  img = "None"
+ tmp.append(img)
 
+ news_info_list.append(tmp)
 
-
-
-
-
-        count += 1
-        # end for
-        mydata = [company_code, news_title, news_info, news_date]
-        saveData.append(mydata)
-    # print(saveData)
-    print('총 크롤링한 종목코드 개수 : ', count)
-
-# def getData():
-
-
-def saveFile():
-    filename = 'company_news.csv'
-    mycolumns = ['company_code', 'news_title', 'news_info', 'news_date']
-    myframe = DataFrame(saveData, columns=mycolumns)
-    myframe.to_csv(filename, encoding='cp949', mode='w', index=True)
-    print(filename + '으로 저장되었습니다.')
-# end def saveFile():
-
-print('크롤링 시작')
-getData()
-# saveFile()
-print('크롤링 종료')
-
-
+df = pd.DataFrame(news_info_list)
+df.columns = ['news_url','news_header','news_body','news_img']
+print(df)
+dbInsert.dbInsert(df,'news')
